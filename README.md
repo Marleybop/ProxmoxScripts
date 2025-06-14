@@ -7,7 +7,7 @@ One-click installer for the [Muse Discord Bot](https://github.com/museofficial/m
 ## 🚀 Installation
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/Marleybop/ProxmoxScripts/main/muse-lxc.sh)
+bash <(curl -s https://raw.githubusercontent.com/Marleybop/ProxmoxScripts/main/muse.sh)
 ```
 
 **That's it!** The interactive installer will guide you through the rest.
