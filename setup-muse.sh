@@ -1,296 +1,174 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Proxmox Muse Discord Bot LXC Container Setup Script
-# This script creates a Debian LXC container and installs Muse Discord music bot
+# Proxmox Muse Discord Bot LXC Setup Script
+# Based on community-scripts/ProxmoxVE style
 
-set -e
+source <(curl -s https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func) 2>/dev/null || {
+    # Fallback colors if build.func not available
+    BL='\033[36m'
+    GN='\033[1;92m'
+    CL='\033[m'
+    RD='\033[01;31m'
+    YW='\033[1;33m'
+    msg_info() { echo -e "${BL}[INFO]${CL} $1"; }
+    msg_ok() { echo -e "${GN}[OK]${CL} $1"; }
+    msg_error() { echo -e "${RD}[ERROR]${CL} $1"; }
+}
 
-# Colors for better output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Default values
+CTID="200"
+CT_NAME="muse"
+CT_DISK="8"
+CT_RAM="2048"
+CT_CPU="2"
+CT_PASSWORD=""
+CT_TEMPLATE=""
+CT_STORAGE=""
 
-# Function to print colored output
-print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+# Functions
+header_info() {
+    cat <<"EOF"
+    __  ___                 ____        __
+   /  |/  /_  _________   / __ )____  / /_
+  / /|_/ / / / / ___/ _ \ / __  / __ \/ __/
+ / /  / / /_/ (__  )  __/ /_/ / /_/ / /_
+/_/  /_/\__,_/____/\___/_____/\____/\__/
 
-# Function to get user input with default value
+EOF
+}
+
 get_input() {
     local prompt="$1"
     local default="$2"
-    local result
+    local input
     
     if [ -n "$default" ]; then
-        read -p "$prompt [$default]: " result
-        echo "${result:-$default}"
+        read -p "$prompt [$default]: " input
+        echo "${input:-$default}"
     else
-        while [ -z "$result" ]; do
-            read -p "$prompt: " result
-            if [ -z "$result" ]; then
-                print_warning "This value is required!"
-            fi
-        done
-        echo "$result"
+        read -p "$prompt: " input
+        echo "$input"
     fi
 }
 
-# Function to check if string is a number
-is_number() {
-    case "$1" in
-        ''|*[!0-9]*) return 1 ;;
-        *) return 0 ;;
-    esac
-}
-
-# Function to validate container ID
-validate_container_id() {
-    local id="$1"
-    if ! is_number "$id"; then
-        return 1
-    fi
-    if [ "$id" -lt 100 ] || [ "$id" -gt 999999999 ]; then
-        return 1
-    fi
-    if pct list | grep -q "^$id"; then
-        return 1
-    fi
-    return 0
-}
-
-# Function to list available templates
-list_templates() {
-    print_info "Available Debian templates:"
-    pveam list local | grep debian | nl -v0
-}
-
-# Function to list available storage
-list_storage() {
-    print_info "Available storage:"
-    pvesm status | grep -E "(active|enabled)" | awk '{print NR-1 ": " $1 " (" $2 ")"}'
-}
-
+# Main script
 clear
-echo "============================================="
-echo "    Proxmox Muse Discord Bot Setup"
-echo "============================================="
-echo
+header_info
+echo -e "Loading..."
 
-print_info "This script will create an LXC container and install Muse Discord music bot"
-echo
+# Get available templates and storage
+TEMPLATES=$(pveam available -section system | grep debian-12 | head -1 | awk '{print $2}')
+STORAGES=$(pvesm status -content vztmpl | awk 'NR>1 {print $1}' | head -1)
 
-# Interactive configuration
-print_info "Container Configuration:"
-
-# Container ID
-while true; do
-    CONTAINER_ID=$(get_input "Enter container ID (100-999999999)" "200")
-    if validate_container_id "$CONTAINER_ID"; then
-        break
-    else
-        print_error "Invalid container ID or ID already exists!"
-    fi
-done
-
-# Container name
-CONTAINER_NAME=$(get_input "Enter container name" "muse-bot")
-
-# List and select template
-echo
-list_templates
-echo
-TEMPLATE_CHOICE=$(get_input "Select template number (or enter custom name)" "0")
-if is_number "$TEMPLATE_CHOICE"; then
-    TEMPLATE=$(pveam list local | grep debian | sed -n "$((TEMPLATE_CHOICE+1))p" | awk '{print $2}')
-    if [ -z "$TEMPLATE" ]; then
-        TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
-        print_warning "Invalid selection, using default: $TEMPLATE"
-    fi
-else
-    TEMPLATE="$TEMPLATE_CHOICE"
-fi
-
-# List and select storage
-echo
-list_storage
-echo
-STORAGE_CHOICE=$(get_input "Select storage number (or enter custom name)" "0")
-if is_number "$STORAGE_CHOICE"; then
-    STORAGE=$(pvesm status | grep -E "(active|enabled)" | sed -n "$((STORAGE_CHOICE+1))p" | awk '{print $1}')
-    if [ -z "$STORAGE" ]; then
-        STORAGE="local-lvm"
-        print_warning "Invalid selection, using default: $STORAGE"
-    fi
-else
-    STORAGE="$STORAGE_CHOICE"
-fi
-
-# Resource configuration
-ROOT_SIZE=$(get_input "Root filesystem size" "8G")
-MEMORY=$(get_input "Memory (MB)" "2048")
-CORES=$(get_input "CPU cores" "2")
-
-# Network configuration
-NETWORK=$(get_input "Network bridge" "vmbr0")
-echo
-print_info "IP Configuration options:"
-echo "1. DHCP (automatic)"
-echo "2. Static IP (e.g., 192.168.1.100/24)"
-IP_CHOICE=$(get_input "Choose IP configuration (1 or 2)" "1")
-if [ "$IP_CHOICE" = "2" ]; then
-    IP_ADDRESS=$(get_input "Enter static IP with subnet (e.g., 192.168.1.100/24)")
-else
-    IP_ADDRESS="dhcp"
-fi
-
-# Security
-PASSWORD=$(get_input "Set root password" "")
-
-# Optional: API Keys
-echo
-print_info "API Keys Configuration (optional - can be set later):"
-echo "You can configure these now or later via the container"
-read -p "Do you want to configure API keys now? (y/N): " CONFIGURE_KEYS
-case "$CONFIGURE_KEYS" in
-    [Yy]|[Yy][Ee][Ss])
-        DISCORD_TOKEN=$(get_input "Discord Bot Token (required for bot to work)" "")
-        YOUTUBE_API_KEY=$(get_input "YouTube API Key (required for YouTube support)" "")
-        SPOTIFY_CLIENT_ID=$(get_input "Spotify Client ID (optional)" "")
-        SPOTIFY_CLIENT_SECRET=$(get_input "Spotify Client Secret (optional)" "")
-        ;;
-    *)
-        DISCORD_TOKEN=""
-        YOUTUBE_API_KEY=""
-        SPOTIFY_CLIENT_ID=""
-        SPOTIFY_CLIENT_SECRET=""
-        ;;
-esac
-
-# Summary
-echo
-print_info "Configuration Summary:"
-echo "Container ID: $CONTAINER_ID"
-echo "Container Name: $CONTAINER_NAME"
-echo "Template: $TEMPLATE"
-echo "Storage: $STORAGE"
-echo "Root Size: $ROOT_SIZE"
-echo "Memory: ${MEMORY}MB"
-echo "Cores: $CORES"
-echo "Network: $NETWORK"
-echo "IP: $IP_ADDRESS"
-if [ -n "$DISCORD_TOKEN" ]; then
-    echo "API Keys: Configured"
-else
-    echo "API Keys: Will configure later"
-fi
-echo
-
-read -p "Proceed with installation? (y/N): " CONFIRM
-case "$CONFIRM" in
-    [Yy]|[Yy][Ee][Ss])
-        # Continue with installation
-        ;;
-    *)
-        print_info "Installation cancelled."
-        exit 0
-        ;;
-esac
-
-# Check if container already exists
-if pct list | grep -q "^$CONTAINER_ID"; then
-    print_error "Container $CONTAINER_ID already exists!"
+if [ -z "$TEMPLATES" ]; then
+    msg_error "No Debian templates available. Please download one first:"
+    echo "pveam update && pveam download local debian-12-standard_12.7-1_amd64.tar.zst"
     exit 1
 fi
 
-# Create LXC container
-print_info "Creating LXC container..."
-pct create $CONTAINER_ID $TEMPLATE \
-    --hostname $CONTAINER_NAME \
-    --storage $STORAGE \
-    --rootfs $STORAGE:$ROOT_SIZE \
-    --memory $MEMORY \
-    --cores $CORES \
-    --password $PASSWORD \
-    --net0 name=eth0,bridge=$NETWORK,ip=$IP_ADDRESS \
+CT_TEMPLATE="$TEMPLATES"
+CT_STORAGE="$STORAGES"
+
+echo
+msg_info "Container Configuration"
+CTID=$(get_input "Container ID" "$CTID")
+CT_NAME=$(get_input "Container Name" "$CT_NAME")
+CT_DISK=$(get_input "Disk Size (GB)" "$CT_DISK")
+CT_RAM=$(get_input "RAM (MB)" "$CT_RAM")
+CT_CPU=$(get_input "CPU Cores" "$CT_CPU")
+
+echo
+msg_info "Security"
+while [ -z "$CT_PASSWORD" ]; do
+    read -s -p "Root Password: " CT_PASSWORD
+    echo
+    if [ -z "$CT_PASSWORD" ]; then
+        msg_error "Password cannot be empty!"
+    fi
+done
+
+echo
+msg_info "API Keys (optional - can configure later)"
+read -p "Configure API keys now? (y/N): " SETUP_KEYS
+
+if [[ "$SETUP_KEYS" =~ ^[Yy] ]]; then
+    DISCORD_TOKEN=$(get_input "Discord Bot Token" "")
+    YOUTUBE_API_KEY=$(get_input "YouTube API Key" "")
+    SPOTIFY_CLIENT_ID=$(get_input "Spotify Client ID (optional)" "")
+    SPOTIFY_CLIENT_SECRET=$(get_input "Spotify Client Secret (optional)" "")
+fi
+
+echo
+msg_info "Summary:"
+echo "ID: $CTID | Name: $CT_NAME | Disk: ${CT_DISK}GB | RAM: ${CT_RAM}MB | CPU: $CT_CPU"
+echo "Template: $CT_TEMPLATE"
+echo
+
+read -p "Create container? (y/N): " CONFIRM
+if [[ ! "$CONFIRM" =~ ^[Yy] ]]; then
+    msg_error "Cancelled"
+    exit 0
+fi
+
+# Create container
+msg_info "Creating LXC container"
+pct create $CTID $CT_TEMPLATE \
+    --hostname $CT_NAME \
+    --storage $CT_STORAGE \
+    --rootfs $CT_STORAGE:$CT_DISK \
+    --memory $CT_RAM \
+    --cores $CT_CPU \
+    --password $CT_PASSWORD \
+    --net0 name=eth0,bridge=vmbr0,ip=dhcp \
     --features nesting=1 \
     --unprivileged 1 \
     --onboot 1
+msg_ok "Container created"
 
-print_success "Container created successfully!"
+msg_info "Starting container"
+pct start $CTID
+sleep 5
+msg_ok "Container started"
 
-# Start the container
-print_info "Starting container..."
-pct start $CONTAINER_ID
+# Install packages
+msg_info "Installing packages"
+pct exec $CTID -- bash -c "
+    apt update >/dev/null 2>&1
+    apt install -y curl wget git ffmpeg python3 build-essential >/dev/null 2>&1
+"
+msg_ok "Packages installed"
 
-# Wait for container to be ready
-print_info "Waiting for container to start..."
-sleep 10
+# Install Node.js 18
+msg_info "Installing Node.js 18"
+pct exec $CTID -- bash -c "
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - >/dev/null 2>&1
+    apt install -y nodejs >/dev/null 2>&1
+"
+msg_ok "Node.js installed"
 
-# Install packages and setup Muse
-print_info "Setting up Muse inside container..."
-pct exec $CONTAINER_ID -- bash -c "
-set -e
+# Create user and install Muse
+msg_info "Installing Muse"
+pct exec $CTID -- bash -c "
+    useradd -m -s /bin/bash muse
+    sudo -u muse bash -c '
+        cd /home/muse
+        git clone https://github.com/museofficial/muse.git >/dev/null 2>&1
+        cd muse
+        git checkout \$(git describe --tags --abbrev=0) >/dev/null 2>&1
+        npm install >/dev/null 2>&1
+        cp .env.example .env
+        sed -i \"s/DISCORD_TOKEN=.*/DISCORD_TOKEN=${DISCORD_TOKEN:-}/\" .env
+        sed -i \"s/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}/\" .env
+        sed -i \"s/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}/\" .env
+        sed -i \"s/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}/\" .env
+        echo \"CACHE_LIMIT=1GB\" >> .env
+    '
+"
+msg_ok "Muse installed"
 
-# Update system
-apt update && apt upgrade -y
-
-# Install required packages
-apt install -y curl wget git ffmpeg python3 python3-pip build-essential
-
-# Install Node.js 18 (required for Muse)
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-apt install -y nodejs
-
-# Verify installations
-echo 'Node.js version:'
-node --version
-echo 'npm version:'
-npm --version
-echo 'ffmpeg version:'
-ffmpeg -version | head -1
-
-# Create muse user
-useradd -m -s /bin/bash muse
-usermod -aG sudo muse
-
-# Switch to muse user and install Muse
-sudo -u muse bash -c '
-cd /home/muse
-
-# Clone Muse repository
-git clone https://github.com/museofficial/muse.git
-cd muse
-
-# Get latest release tag
-LATEST_TAG=\$(git describe --tags --abbrev=0)
-git checkout \$LATEST_TAG
-echo \"Checked out to latest release: \$LATEST_TAG\"
-
-# Install dependencies
-npm install
-
-# Create environment file
-cp .env.example .env
-
-# Configure basic settings
-sed -i \"s/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/\" .env
-sed -i \"s/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/\" .env
-sed -i \"s/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/\" .env
-sed -i \"s/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET/\" .env
-
-# Set cache limit to 1GB (adjust as needed)
-echo \"CACHE_LIMIT=1GB\" >> .env
-
-# Optional: Enable SponsorBlock (uncomment if desired)
-# echo \"ENABLE_SPONSORBLOCK=true\" >> .env
-
-echo \"Environment file configured\"
-'
-
-# Create systemd service for Muse
+# Create systemd service
+msg_info "Creating service"
+pct exec $CTID -- bash -c "
 cat > /etc/systemd/system/muse.service << 'EOF'
 [Unit]
 Description=Muse Discord Music Bot
@@ -303,54 +181,44 @@ WorkingDirectory=/home/muse/muse
 ExecStart=/usr/bin/npm run start
 Restart=always
 RestartSec=10
-Environment=NODE_ENV=production
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Enable and start the service
 systemctl daemon-reload
-systemctl enable muse.service
-
-echo 'Muse installation completed!'
-echo 'Service created but not started yet - configure your API keys first'
+systemctl enable muse >/dev/null 2>&1
 "
+msg_ok "Service created"
 
-echo ""
-print_success "Setup Complete!"
-echo ""
-echo "Container Information:"
-echo "- ID: $CONTAINER_ID"
-echo "- Name: $CONTAINER_NAME"
-echo "- IP: Check with 'pct exec $CONTAINER_ID -- ip addr show eth0'"
-echo ""
-echo "Next Steps:"
+# Final setup
+CT_IP=$(pct exec $CTID -- ip route get 1.1.1.1 | grep -oP 'src \K\S+' 2>/dev/null || echo "DHCP")
+
+echo
+msg_ok "Muse Discord Bot installed successfully!"
+echo
+echo "Container Details:"
+echo "- ID: $CTID"
+echo "- IP: $CT_IP"
+echo "- Username: muse"
+echo "- Location: /home/muse/muse"
+echo
+
 if [ -z "$DISCORD_TOKEN" ]; then
-    echo "1. Configure your API keys:"
-    echo "   pct exec $CONTAINER_ID -- sudo -u muse nano /home/muse/muse/.env"
-    echo ""
-    echo "2. Required API Keys to configure:"
-    echo "   - DISCORD_TOKEN (from https://discord.com/developers/applications)"
-    echo "   - YOUTUBE_API_KEY (from Google Developer Console)"
-    echo "   - SPOTIFY_CLIENT_ID (optional, from Spotify Developer Dashboard)"
-    echo "   - SPOTIFY_CLIENT_SECRET (optional, from Spotify Developer Dashboard)"
-    echo ""
-    echo "3. Start the Muse service:"
-    echo "   pct exec $CONTAINER_ID -- systemctl start muse"
+    echo "Next Steps:"
+    echo "1. Configure API keys:"
+    echo "   pct exec $CTID -- sudo -u muse nano /home/muse/muse/.env"
+    echo "2. Start service:"
+    echo "   pct exec $CTID -- systemctl start muse"
 else
-    echo "1. Start the Muse service:"
-    echo "   pct exec $CONTAINER_ID -- systemctl start muse"
+    echo "Starting Muse service..."
+    pct exec $CTID -- systemctl start muse
+    echo "Service started! Check logs:"
+    echo "   pct exec $CTID -- journalctl -u muse -f"
 fi
-echo ""
-echo "4. Check service status:"
-echo "   pct exec $CONTAINER_ID -- systemctl status muse"
-echo ""
-echo "5. View logs:"
-echo "   pct exec $CONTAINER_ID -- journalctl -u muse -f"
-echo ""
-echo "6. The bot will log an invite URL when started. Use this to add it to your Discord server."
-echo ""
-echo "Container root password: $PASSWORD (change this!)"
-echo ""
-echo "To access the container: pct enter $CONTAINER_ID"
+
+echo
+echo "Useful commands:"
+echo "- Access container: pct enter $CTID"
+echo "- Check status: pct exec $CTID -- systemctl status muse"
+echo "- View logs: pct exec $CTID -- journalctl -u muse -f"
