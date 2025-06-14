@@ -27,16 +27,6 @@ You'll need a **Discord Bot Token**:
 
 ---
 
-## ✨ What You Get
-
-🐳 **Complete LXC Container** - Debian 12 with everything configured  
-🎨 **Interactive Setup** - GUI prompts for all configuration  
-🔄 **Auto-Start Service** - Bot runs on boot automatically  
-📊 **Live Progress** - Watch the installation happen  
-📝 **Instant Results** - Discord invite link appears when ready  
-
----
-
 ## 🔧 Management
 
 ### Container Commands
