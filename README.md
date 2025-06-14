@@ -79,9 +79,13 @@ The installer features a complete interactive interface:
 ![image](https://github.com/user-attachments/assets/1f6c8319-eba1-4f9f-8df7-3abba8b2121d)
 
 - **Configuration Forms** - Easy input with validation
-- **Progress Bar** - Visual installation progress
+![image](https://github.com/user-attachments/assets/79115459-a421-42cc-a832-3e64d2b70db1)
+
 - **Confirmation Dialogs** - Review settings before proceeding
-- **Success Messages** - Clear completion status
+![image](https://github.com/user-attachments/assets/fb7436c0-1378-410c-bce6-23e66e38aab4)
+
+- **Progress Bar** - Visual installation progress
+![image](https://github.com/user-attachments/assets/03b4be11-36f7-4126-8343-88cbafdf121c)
 
 ## 🔧 Management Commands
 
