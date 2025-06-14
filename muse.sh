@@ -1,149 +1,121 @@
 #!/usr/bin/env bash
 
-# Simple Muse Discord Bot Installer
-# Run this inside a Debian/Ubuntu container or VM
+# Muse Discord Bot Installer - Following Official Docs Exactly
+# https://github.com/museofficial/muse
 
 set -e
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-msg_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-msg_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
-msg_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-msg_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-
-header() {
-    echo "=========================================="
-    echo "        Muse Discord Bot Installer"
-    echo "=========================================="
-    echo
-}
-
-get_input() {
-    local prompt="$1"
-    local default="$2"
-    local input
-    
-    if [ -n "$default" ]; then
-        read -p "$prompt [$default]: " input
-        echo "${input:-$default}"
-    else
-        read -p "$prompt: " input
-        echo "$input"
-    fi
-}
-
-clear
-header
-
-msg_info "This script will install Muse Discord Bot with all dependencies"
+echo "=========================================="
+echo "        Muse Discord Bot Installer"
+echo "=========================================="
 echo
 
-# Check if running as root
-if [ "$EUID" -eq 0 ]; then
-    msg_warn "Running as root - will create 'muse' user for the bot"
-    RUN_AS_ROOT=true
-else
-    msg_info "Running as regular user"
-    RUN_AS_ROOT=false
+# Install prerequisites
+echo "[INFO] Installing prerequisites..."
+apt update
+apt install -y curl wget git ffmpeg build-essential
+
+# Install Node.js 18 LTS (required for opus dependency)
+echo "[INFO] Installing Node.js 18 LTS..."
+curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+apt install -y nodejs
+
+echo "[OK] Node.js $(node --version) installed"
+
+# Remove conflicting yarn if it exists (the cmdtest package)
+if [ -f /usr/bin/yarn ] && [ "$(yarn --version 2>/dev/null)" = "0.32+git" ]; then
+    echo "[INFO] Removing conflicting yarn package..."
+    rm /usr/bin/yarn
 fi
 
-# Update system
-msg_info "Updating system packages..."
-apt update && apt upgrade -y
-msg_ok "System updated"
-
-# Install dependencies
-msg_info "Installing dependencies..."
-apt install -y curl wget git ffmpeg python3 build-essential sudo
-msg_ok "Dependencies installed"
-
-# Install Node.js 18
-msg_info "Installing Node.js 18..."
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-apt install -y nodejs
-msg_ok "Node.js installed ($(node --version))"
+# Install proper yarn
+echo "[INFO] Installing Yarn..."
+npm install -g yarn
+echo "[OK] Yarn $(yarn --version) installed"
 
 # Create muse user if running as root
-if [ "$RUN_AS_ROOT" = true ]; then
+if [ "$EUID" -eq 0 ]; then
     if ! id "muse" &>/dev/null; then
-        msg_info "Creating muse user..."
         useradd -m -s /bin/bash muse
-        msg_ok "User 'muse' created"
-    else
-        msg_info "User 'muse' already exists"
+        echo "[INFO] Created user 'muse'"
     fi
-fi
+    
+    echo "[INFO] Installing Muse as user 'muse'..."
+    
+    # Run installation as muse user
+    su - muse << 'EOF'
+# Step 1: Clone repository
+git clone https://github.com/museofficial/muse.git && cd muse
 
-# Install Muse
-msg_info "Installing Muse Discord Bot..."
-su - muse -c "
-    cd /home/muse
-    if [ -d 'muse' ]; then
-        echo 'Removing existing muse directory...'
-        rm -rf muse
-    fi
-    git clone https://github.com/museofficial/muse.git
-    cd muse
-    LATEST_TAG=\$(git describe --tags --abbrev=0)
-    git checkout \$LATEST_TAG
-    echo 'Checked out to: '\$LATEST_TAG
-    npm install --legacy-peer-deps
+# Step 2: Copy .env.example to .env
+cp .env.example .env
+
+# Step 3: Checkout latest release
+LATEST_TAG=$(git describe --tags --abbrev=0)
+git checkout $LATEST_TAG
+echo "Checked out to: $LATEST_TAG"
+
+# Step 4: Install dependencies
+yarn install
+
+echo "Muse installation completed!"
+EOF
+
+else
+    echo "[INFO] Installing Muse in current user directory..."
+    
+    # Run as current user
+    git clone https://github.com/museofficial/muse.git && cd muse
     cp .env.example .env
-    echo 'CACHE_LIMIT=1GB' >> .env
-"
-msg_ok "Muse installed"
+    LATEST_TAG=$(git describe --tags --abbrev=0)
+    git checkout $LATEST_TAG
+    echo "Checked out to: $LATEST_TAG"
+    yarn install
+    echo "Muse installation completed!"
+fi
 
 # Configure API keys
 echo
-msg_info "API Key Configuration"
-echo "You need to configure these API keys for Muse to work:"
-echo
+echo "[INFO] Configuring API keys..."
 
-read -p "Do you want to configure API keys now? (y/N): " CONFIGURE_NOW
-if [[ "$CONFIGURE_NOW" =~ ^[Yy] ]]; then
-    echo
-    msg_info "Discord Bot Token"
-    echo "Get it from: https://discord.com/developers/applications"
-    DISCORD_TOKEN=$(get_input "Discord Bot Token" "")
-    
-    echo
-    msg_info "YouTube API Key"
-    echo "Get it from: https://console.developers.google.com"
-    YOUTUBE_API_KEY=$(get_input "YouTube API Key" "")
-    
-    echo
-    read -p "Configure Spotify integration? (y/N): " SPOTIFY_SETUP
-    if [[ "$SPOTIFY_SETUP" =~ ^[Yy] ]]; then
-        echo "Get these from: https://developer.spotify.com/dashboard"
-        SPOTIFY_CLIENT_ID=$(get_input "Spotify Client ID" "")
-        SPOTIFY_CLIENT_SECRET=$(get_input "Spotify Client Secret" "")
-    fi
-    
-    # Update .env file
-    msg_info "Updating configuration..."
-    su - muse -c "
-        cd /home/muse/muse
-        sed -i 's/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/' .env
-        sed -i 's/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/' .env
-        $([ -n "$SPOTIFY_CLIENT_ID" ] && echo "sed -i 's/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/' .env")
-        $([ -n "$SPOTIFY_CLIENT_SECRET" ] && echo "sed -i 's/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET/' .env")
-    "
-    msg_ok "Configuration updated"
-    
-    KEYS_CONFIGURED=true
-else
-    KEYS_CONFIGURED=false
+read -p "Discord Bot Token (required): " DISCORD_TOKEN
+while [ -z "$DISCORD_TOKEN" ]; do
+    echo "Discord token is required!"
+    read -p "Discord Bot Token: " DISCORD_TOKEN
+done
+
+read -p "YouTube API Key (optional, press enter to skip): " YOUTUBE_API_KEY
+read -p "Spotify Client ID (optional, press enter to skip): " SPOTIFY_CLIENT_ID
+if [ ! -z "$SPOTIFY_CLIENT_ID" ]; then
+    read -p "Spotify Client Secret: " SPOTIFY_CLIENT_SECRET
 fi
 
-# Create systemd service
-msg_info "Creating systemd service..."
-cat > /etc/systemd/system/muse.service << 'EOF'
+# Update .env file
+if [ "$EUID" -eq 0 ]; then
+    ENV_FILE="/home/muse/muse/.env"
+else
+    ENV_FILE="muse/.env"
+fi
+
+echo "[INFO] Updating .env file..."
+sed -i "s/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/" "$ENV_FILE"
+
+if [ ! -z "$YOUTUBE_API_KEY" ]; then
+    sed -i "s/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/" "$ENV_FILE"
+fi
+
+if [ ! -z "$SPOTIFY_CLIENT_ID" ]; then
+    sed -i "s/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/" "$ENV_FILE"
+    sed -i "s/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET/" "$ENV_FILE"
+fi
+
+echo "[OK] Configuration updated"
+
+# Create systemd service (only if running as root)
+if [ "$EUID" -eq 0 ]; then
+    echo "[INFO] Creating systemd service..."
+    
+    cat > /etc/systemd/system/muse.service << 'EOF'
 [Unit]
 Description=Muse Discord Music Bot
 After=network.target
@@ -153,7 +125,7 @@ Type=simple
 User=muse
 Group=muse
 WorkingDirectory=/home/muse/muse
-ExecStart=/usr/bin/npm start
+ExecStart=/usr/bin/yarn start
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
@@ -162,57 +134,47 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable muse
-msg_ok "Service created and enabled"
-
-# Final instructions
-echo
-msg_ok "Muse Discord Bot installation completed!"
-echo
-echo "Installation Details:"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "User: muse"
-echo "Location: /home/muse/muse"
-echo "Config: /home/muse/muse/.env"
-echo "API Keys: $([ "$KEYS_CONFIGURED" = true ] && echo "✓ Configured" || echo "✗ Not configured")"
-echo
-
-if [ "$KEYS_CONFIGURED" = false ]; then
-    echo "Next Steps:"
-    echo "1. Configure API keys:"
-    echo "   nano /home/muse/muse/.env"
-    echo
-    echo "Required API keys:"
-    echo "• DISCORD_TOKEN (from https://discord.com/developers/applications)"
-    echo "• YOUTUBE_API_KEY (from https://console.developers.google.com)"
-    echo "• SPOTIFY_CLIENT_ID & SECRET (optional, from https://developer.spotify.com)"
-    echo
+    systemctl daemon-reload
+    systemctl enable muse
+    echo "[OK] Service created and enabled"
 fi
 
-echo "To manage Muse:"
-if [ "$KEYS_CONFIGURED" = true ]; then
+echo
+echo "=========================================="
+echo "           Installation Complete"
+echo "=========================================="
+echo
+echo "Configuration:"
+echo "✓ Discord Bot Token: Configured"
+if [ ! -z "$YOUTUBE_API_KEY" ]; then
+    echo "✓ YouTube API Key: Configured"
+fi
+if [ ! -z "$SPOTIFY_CLIENT_ID" ]; then
+    echo "✓ Spotify: Configured"
+fi
+
+if [ "$EUID" -eq 0 ]; then
+    echo
+    echo "Service Management:"
     echo "• Start service: systemctl start muse"
+    echo "• Stop service: systemctl stop muse"
     echo "• Check status: systemctl status muse"
     echo "• View logs: journalctl -u muse -f"
-else
-    echo "• Configure keys first, then: systemctl start muse"
-fi
-echo "• Stop service: systemctl stop muse"
-echo "• Restart service: systemctl restart muse"
-echo
-echo "The bot will display a Discord invite URL when started."
-echo "Use that URL to add Muse to your Discord server!"
-
-if [ "$KEYS_CONFIGURED" = true ]; then
+    echo "• Restart service: systemctl restart muse"
     echo
-    read -p "Start Muse service now? (y/N): " START_NOW
-    if [[ "$START_NOW" =~ ^[Yy] ]]; then
-        msg_info "Starting Muse service..."
+    read -p "Start Muse service now? (y/N): " START_SERVICE
+    if [[ $START_SERVICE =~ ^[Yy]$ ]]; then
+        echo "[INFO] Starting Muse service..."
         systemctl start muse
-        sleep 3
-        echo
-        echo "Service started! Check logs for invite URL:"
+        echo "[OK] Service started! Check logs for invite URL:"
         echo "journalctl -u muse -f"
     fi
+else
+    echo
+    echo "To start Muse:"
+    echo "   cd muse"
+    echo "   yarn start"
 fi
+echo
+echo "Get your Discord bot token from: https://discord.com/developers/applications"
+echo "The bot will display an invite URL when started."
