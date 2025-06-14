@@ -38,25 +38,27 @@ get_input() {
     fi
 }
 
+# Function to check if string is a number
+is_number() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
 # Function to validate container ID
 validate_container_id() {
     local id="$1"
-    case "$id" in
-        ''|*[!0-9]*)
-            # Not a number
-            return 1
-            ;;
-        *)
-            # It's a number, check range and existence
-            if [ "$id" -lt 100 ] || [ "$id" -gt 999999999 ]; then
-                return 1
-            fi
-            if pct list | grep -q "^$id"; then
-                return 1
-            fi
-            return 0
-            ;;
-    esac
+    if ! is_number "$id"; then
+        return 1
+    fi
+    if [ "$id" -lt 100 ] || [ "$id" -gt 999999999 ]; then
+        return 1
+    fi
+    if pct list | grep -q "^$id"; then
+        return 1
+    fi
+    return 0
 }
 
 # Function to list available templates
@@ -101,40 +103,30 @@ echo
 list_templates
 echo
 TEMPLATE_CHOICE=$(get_input "Select template number (or enter custom name)" "0")
-case "$TEMPLATE_CHOICE" in
-    ''|*[!0-9]*)
-        # Not a number, use as custom template name
-        TEMPLATE="$TEMPLATE_CHOICE"
-        ;;
-    *)
-        # It's a number, get template by index
-        TEMPLATE=$(pveam list local | grep debian | sed -n "$((TEMPLATE_CHOICE+1))p" | awk '{print $2}')
-        if [ -z "$TEMPLATE" ]; then
-            TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
-            print_warning "Invalid selection, using default: $TEMPLATE"
-        fi
-        ;;
-esac
+if is_number "$TEMPLATE_CHOICE"; then
+    TEMPLATE=$(pveam list local | grep debian | sed -n "$((TEMPLATE_CHOICE+1))p" | awk '{print $2}')
+    if [ -z "$TEMPLATE" ]; then
+        TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
+        print_warning "Invalid selection, using default: $TEMPLATE"
+    fi
+else
+    TEMPLATE="$TEMPLATE_CHOICE"
+fi
 
 # List and select storage
 echo
 list_storage
 echo
 STORAGE_CHOICE=$(get_input "Select storage number (or enter custom name)" "0")
-case "$STORAGE_CHOICE" in
-    ''|*[!0-9]*)
-        # Not a number, use as custom storage name
-        STORAGE="$STORAGE_CHOICE"
-        ;;
-    *)
-        # It's a number, get storage by index
-        STORAGE=$(pvesm status | grep -E "(active|enabled)" | sed -n "$((STORAGE_CHOICE+1))p" | awk '{print $1}')
-        if [ -z "$STORAGE" ]; then
-            STORAGE="local-lvm"
-            print_warning "Invalid selection, using default: $STORAGE"
-        fi
-        ;;
-esac
+if is_number "$STORAGE_CHOICE"; then
+    STORAGE=$(pvesm status | grep -E "(active|enabled)" | sed -n "$((STORAGE_CHOICE+1))p" | awk '{print $1}')
+    if [ -z "$STORAGE" ]; then
+        STORAGE="local-lvm"
+        print_warning "Invalid selection, using default: $STORAGE"
+    fi
+else
+    STORAGE="$STORAGE_CHOICE"
+fi
 
 # Resource configuration
 ROOT_SIZE=$(get_input "Root filesystem size" "8G")
@@ -189,7 +181,11 @@ echo "Memory: ${MEMORY}MB"
 echo "Cores: $CORES"
 echo "Network: $NETWORK"
 echo "IP: $IP_ADDRESS"
-echo "API Keys: $([ -n "$DISCORD_TOKEN" ] && echo "Configured" || echo "Will configure later")"
+if [ -n "$DISCORD_TOKEN" ]; then
+    echo "API Keys: Configured"
+else
+    echo "API Keys: Will configure later"
+fi
 echo
 
 read -p "Proceed with installation? (y/N): " CONFIRM
