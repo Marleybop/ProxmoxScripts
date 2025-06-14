@@ -1,86 +1,97 @@
 #!/usr/bin/env bash
 
-# Muse Discord Bot Installer - Following Official Docs Exactly
+# Muse Discord Bot LXC Installer for Proxmox
+# Creates LXC container and installs Muse Discord Bot
 # https://github.com/museofficial/muse
 
 set -e
 
-echo "=========================================="
-echo "        Muse Discord Bot Installer"
-echo "=========================================="
+# Color definitions for GUI
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Helper functions for colored output
+msg_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+msg_ok() {
+    echo -e "${GREEN}[OK]${NC} $1"
+}
+
+msg_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+msg_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+# Header with style
+clear
+echo -e "${PURPLE}============================================"
+echo -e "    Muse Discord Bot LXC Installer"
+echo -e "============================================${NC}"
 echo
 
-# Install prerequisites
-echo "[INFO] Installing prerequisites..."
-apt update
-apt install -y curl wget git ffmpeg build-essential
-
-# Install Node.js 18 LTS (required for opus dependency)
-echo "[INFO] Installing Node.js 18 LTS..."
-curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
-apt install -y nodejs
-
-echo "[OK] Node.js $(node --version) installed"
-
-# Remove conflicting yarn if it exists (the cmdtest package)
-if [ -f /usr/bin/yarn ] && [ "$(yarn --version 2>/dev/null)" = "0.32+git" ]; then
-    echo "[INFO] Removing conflicting yarn package..."
-    rm /usr/bin/yarn
+# Check if running on Proxmox
+if ! command -v pct &> /dev/null; then
+    msg_error "This script must be run on a Proxmox VE host"
+    msg_info "If you want to install on existing system, use the regular installer"
+    exit 1
 fi
 
-# Install proper yarn
-echo "[INFO] Installing Yarn..."
-npm install -g yarn
-echo "[OK] Yarn $(yarn --version) installed"
-
-# Create muse user if running as root
-if [ "$EUID" -eq 0 ]; then
-    if ! id "muse" &>/dev/null; then
-        useradd -m -s /bin/bash muse
-        echo "[INFO] Created user 'muse'"
-    fi
-    
-    echo "[INFO] Installing Muse as user 'muse'..."
-    
-    # Run installation as muse user
-    su - muse << 'EOF'
-# Step 1: Clone repository
-git clone https://github.com/museofficial/muse.git && cd muse
-
-# Step 2: Copy .env.example to .env
-cp .env.example .env
-
-# Step 3: Checkout latest release
-LATEST_TAG=$(git describe --tags --abbrev=0)
-git checkout $LATEST_TAG
-echo "Checked out to: $LATEST_TAG"
-
-# Step 4: Install dependencies
-yarn install
-
-echo "Muse installation completed!"
-EOF
-
-else
-    echo "[INFO] Installing Muse in current user directory..."
-    
-    # Run as current user
-    git clone https://github.com/museofficial/muse.git && cd muse
-    cp .env.example .env
-    LATEST_TAG=$(git describe --tags --abbrev=0)
-    git checkout $LATEST_TAG
-    echo "Checked out to: $LATEST_TAG"
-    yarn install
-    echo "Muse installation completed!"
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    msg_error "This script needs to be run as root"
+    echo "Please run: sudo $0"
+    exit 1
 fi
 
-# Configure API keys
+# Get user input for LXC configuration
+echo -e "${CYAN}LXC Container Configuration:${NC}"
+read -p "Container ID (100-999): " CTID
+while [[ ! "$CTID" =~ ^[0-9]+$ ]] || [ "$CTID" -lt 100 ] || [ "$CTID" -gt 999 ]; do
+    msg_error "Please enter a valid container ID (100-999)"
+    read -p "Container ID (100-999): " CTID
+done
+
+# Check if container ID already exists
+if pct status $CTID &>/dev/null; then
+    msg_error "Container ID $CTID already exists!"
+    exit 1
+fi
+
+read -p "Container hostname [muse]: " HOSTNAME
+HOSTNAME=${HOSTNAME:-muse}
+
+read -p "Root password: " -s PASSWORD
 echo
-echo "[INFO] Configuring API keys..."
+while [ -z "$PASSWORD" ]; do
+    msg_error "Password cannot be empty!"
+    read -p "Root password: " -s PASSWORD
+    echo
+done
 
+read -p "Memory (MB) [2048]: " MEMORY
+MEMORY=${MEMORY:-2048}
+
+read -p "Disk size (GB) [20]: " DISK
+DISK=${DISK:-20}
+
+read -p "CPU cores [2]: " CORES
+CORES=${CORES:-2}
+
+echo
+echo -e "${CYAN}API Keys Configuration:${NC}"
 read -p "Discord Bot Token (required): " DISCORD_TOKEN
 while [ -z "$DISCORD_TOKEN" ]; do
-    echo "Discord token is required!"
+    msg_error "Discord token is required!"
     read -p "Discord Bot Token: " DISCORD_TOKEN
 done
 
@@ -90,32 +101,80 @@ if [ ! -z "$SPOTIFY_CLIENT_ID" ]; then
     read -p "Spotify Client Secret: " SPOTIFY_CLIENT_SECRET
 fi
 
-# Update .env file
-if [ "$EUID" -eq 0 ]; then
-    ENV_FILE="/home/muse/muse/.env"
-else
-    ENV_FILE="muse/.env"
+echo
+msg_info "Creating LXC container..."
+
+# Create LXC container
+pct create $CTID local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
+    --hostname $HOSTNAME \
+    --password $PASSWORD \
+    --memory $MEMORY \
+    --rootfs local-lvm:${DISK} \
+    --cores $CORES \
+    --net0 name=eth0,bridge=vmbr0,ip=dhcp \
+    --onboot 1 \
+    --features nesting=1 \
+    --unprivileged 1
+
+msg_ok "LXC container $CTID created"
+
+# Start container
+msg_info "Starting container..."
+pct start $CTID
+sleep 10
+msg_ok "Container started"
+
+# Install Muse in container
+msg_info "Installing Muse Discord Bot in container..."
+
+pct exec $CTID -- bash -c "
+# Update system
+apt update && apt upgrade -y
+
+# Install prerequisites
+apt install -y curl wget git ffmpeg build-essential
+
+# Install Node.js 18 LTS
+curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+apt install -y nodejs
+
+# Remove conflicting yarn if exists
+if [ -f /usr/bin/yarn ] && [ \"\$(yarn --version 2>/dev/null)\" = \"0.32+git\" ]; then
+    rm /usr/bin/yarn
 fi
 
-echo "[INFO] Updating .env file..."
-sed -i "s/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/" "$ENV_FILE"
+# Install proper yarn
+npm install -g yarn
 
+# Create muse user
+useradd -m -s /bin/bash muse
+
+# Install Muse as muse user
+su - muse << 'EOF'
+git clone https://github.com/museofficial/muse.git && cd muse
+cp .env.example .env
+LATEST_TAG=\$(git describe --tags --abbrev=0)
+git checkout \$LATEST_TAG
+yarn install
+EOF
+
+# Configure .env file
+sed -i 's/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/' /home/muse/muse/.env
+"
+
+# Configure API keys in container
 if [ ! -z "$YOUTUBE_API_KEY" ]; then
-    sed -i "s/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/" "$ENV_FILE"
+    pct exec $CTID -- sed -i "s/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/" /home/muse/muse/.env
 fi
 
 if [ ! -z "$SPOTIFY_CLIENT_ID" ]; then
-    sed -i "s/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/" "$ENV_FILE"
-    sed -i "s/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET/" "$ENV_FILE"
+    pct exec $CTID -- sed -i "s/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/" /home/muse/muse/.env
+    pct exec $CTID -- sed -i "s/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET/" /home/muse/muse/.env
 fi
 
-echo "[OK] Configuration updated"
-
-# Create systemd service (only if running as root)
-if [ "$EUID" -eq 0 ]; then
-    echo "[INFO] Creating systemd service..."
-    
-    cat > /etc/systemd/system/muse.service << 'EOF'
+# Create systemd service in container
+pct exec $CTID -- bash -c "
+cat > /etc/systemd/system/muse.service << 'EOF'
 [Unit]
 Description=Muse Discord Music Bot
 After=network.target
@@ -134,17 +193,30 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
-    systemctl enable muse
-    echo "[OK] Service created and enabled"
-fi
+systemctl daemon-reload
+systemctl enable muse
+"
+
+msg_ok "Muse installation completed in container"
+
+# Start the service and show logs
+msg_info "Starting Muse service..."
+pct exec $CTID -- systemctl start muse
+msg_ok "Service started!"
 
 echo
-echo "=========================================="
-echo "           Installation Complete"
-echo "=========================================="
+echo -e "${PURPLE}============================================"
+echo -e "           Installation Complete"
+echo -e "============================================${NC}"
 echo
-echo "Configuration:"
+echo -e "${GREEN}Container Details:${NC}"
+echo "• Container ID: $CTID"
+echo "• Hostname: $HOSTNAME"
+echo "• Memory: ${MEMORY}MB"
+echo "• Disk: ${DISK}GB"
+echo "• Cores: $CORES"
+echo
+echo -e "${GREEN}Configuration:${NC}"
 echo "✓ Discord Bot Token: Configured"
 if [ ! -z "$YOUTUBE_API_KEY" ]; then
     echo "✓ YouTube API Key: Configured"
@@ -152,29 +224,21 @@ fi
 if [ ! -z "$SPOTIFY_CLIENT_ID" ]; then
     echo "✓ Spotify: Configured"
 fi
-
-if [ "$EUID" -eq 0 ]; then
-    echo
-    echo "Service Management:"
-    echo "• Start service: systemctl start muse"
-    echo "• Stop service: systemctl stop muse"
-    echo "• Check status: systemctl status muse"
-    echo "• View logs: journalctl -u muse -f"
-    echo "• Restart service: systemctl restart muse"
-    echo
-    read -p "Start Muse service now? (y/N): " START_SERVICE
-    if [[ $START_SERVICE =~ ^[Yy]$ ]]; then
-        echo "[INFO] Starting Muse service..."
-        systemctl start muse
-        echo "[OK] Service started! Check logs for invite URL:"
-        echo "journalctl -u muse -f"
-    fi
-else
-    echo
-    echo "To start Muse:"
-    echo "   cd muse"
-    echo "   yarn start"
-fi
 echo
-echo "Get your Discord bot token from: https://discord.com/developers/applications"
-echo "The bot will display an invite URL when started."
+echo -e "${CYAN}Container Management:${NC}"
+echo "• Enter container: pct enter $CTID"
+echo "• Start container: pct start $CTID"
+echo "• Stop container: pct stop $CTID"
+echo "• Container status: pct status $CTID"
+echo
+echo -e "${CYAN}Service Management (inside container):${NC}"
+echo "• Check status: systemctl status muse"
+echo "• View logs: journalctl -u muse -f"
+echo "• Restart service: systemctl restart muse"
+echo
+echo -e "${YELLOW}Showing Muse startup logs (Ctrl+C to exit):${NC}"
+echo -e "${GREEN}Look for the Discord invite URL below:${NC}"
+echo "============================================"
+
+# Follow logs to show Discord invite URL
+pct exec $CTID -- journalctl -u muse -f
