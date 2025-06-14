@@ -21,7 +21,7 @@ You'll need a **Discord Bot Token**:
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
 2. Create New Application → Bot → Copy Token
 
-**Optional extras:**
+**Either of the following, or both:**
 - **YouTube API**: [Google Cloud Console](https://console.developers.google.com) → Enable YouTube Data API v3
 - **Spotify API**: [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) → Create App
 
