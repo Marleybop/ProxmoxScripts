@@ -100,8 +100,8 @@ fi
 # Install Muse
 msg_info "Installing Muse Discord Bot..."
 if [ "$RUN_AS_ROOT" = true ]; then
-    sudo -u muse bash -c "
-        cd $MUSE_HOME
+    su - muse -c "
+        cd /home/muse
         if [ -d 'muse' ]; then
             echo 'Muse directory exists, removing...'
             rm -rf muse
@@ -161,8 +161,8 @@ if [[ "$CONFIGURE_NOW" =~ ^[Yy] ]]; then
     # Update .env file
     msg_info "Updating configuration..."
     if [ "$RUN_AS_ROOT" = true ]; then
-        sudo -u muse bash -c "
-            cd $MUSE_HOME/muse
+        su - muse -c "
+            cd /home/muse/muse
             sed -i 's/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/' .env
             sed -i 's/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/' .env
             $([ -n "$SPOTIFY_CLIENT_ID" ] && echo "sed -i 's/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/' .env")
