@@ -202,17 +202,26 @@ After=network.target
 Type=simple
 User=muse
 WorkingDirectory=/home/muse/muse
-ExecStart=/usr/bin/npm run start
+ExecStart=/usr/bin/node /home/muse/muse/dist/index.js
 Restart=always
 RestartSec=10
+Environment=NODE_ENV=production
 
 [Install]
 WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
         systemctl enable muse >/dev/null 2>&1
-        systemctl start muse >/dev/null 2>&1
     " >/dev/null 2>&1
+    
+    echo "98" ; echo "Building Muse..."
+    pct exec $CTID -- sudo -u muse bash -c "
+        cd /home/muse/muse
+        npm run build >/dev/null 2>&1
+    " >/dev/null 2>&1
+    
+    echo "99" ; echo "Starting service..."
+    pct exec $CTID -- systemctl start muse >/dev/null 2>&1
     
     echo "100" ; echo "Installation complete!"
     
@@ -254,15 +263,21 @@ Check status: pct exec $CTID -- systemctl status muse"
 
 dialog --title "🎵 Installation Complete!" --msgbox "$SUCCESS_MSG" 25 80
 
-# Offer to show logs immediately
-dialog --title "View Bot Logs" --yesno "Would you like to see the Muse logs now?\n\nThis will show the Discord invite URL you need." 8 60
+# Better flow for getting the invite link
+dialog --title "Get Discord Invite Link" \
+    --msgbox "Muse is now running!\n\nTo get your Discord invite link:\n\n1. Click OK to view the logs\n2. Look for a line starting with 'Invite Muse:'\n3. Copy that entire URL\n4. Press Ctrl+C to exit logs\n5. Paste the URL in your browser to add Muse to Discord\n\nThe invite link appears within the first few seconds." 14 70
 
 if [ $? -eq 0 ]; then
     clear
-    echo "=== Muse Discord Bot Logs ==="
-    echo "Look for the Discord invite URL below:"
-    echo "Press Ctrl+C when you've copied the invite link"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo
+    echo "=========================================="
+    echo "     Muse Discord Bot - Live Logs"
+    echo "=========================================="
+    echo ""
+    echo "🔍 Looking for Discord invite URL..."
+    echo "📋 Copy the full invite link when it appears"
+    echo "⏹️  Press Ctrl+C to exit when done"
+    echo ""
+    echo "Logs:"
+    echo "────────────────────────────────────────"
     pct exec $CTID -- journalctl -u muse -f --no-pager
 fi
