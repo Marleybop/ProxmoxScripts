@@ -1,21 +1,68 @@
-🎵 Muse Discord Bot LXC Installer
-Automated installer for the Muse Discord Bot on Proxmox VE with an interactive GUI.
-🚀 Quick Start
-Run this command on your Proxmox host as root:
-bashbash <(curl -s https://raw.githubusercontent.com/Marleybop/ProxmoxScripts/main/muse-lxc.sh)
-✨ What it does
+# 🎵 Muse Discord Bot LXC Installer
 
-Creates a new LXC container
-Installs Node.js and dependencies
-Downloads and configures Muse
-Sets up as a systemd service
-Shows Discord invite link when ready
+One-click installer for the [Muse Discord Bot](https://github.com/museofficial/muse) on Proxmox VE.
 
-📋 What you need
+---
 
-Proxmox VE host
-Discord Bot Token (get one here)
-Optional: YouTube API key, Spotify credentials
+## 🚀 Installation
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/Marleybop/ProxmoxScripts/main/muse-lxc.sh)
+```
+
+**That's it!** The interactive installer will guide you through the rest.
+
+---
+
+## 📋 Before You Start
+
+You'll need a **Discord Bot Token**:
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Create New Application → Bot → Copy Token
+
+**Optional extras:**
+- **YouTube API**: [Google Cloud Console](https://console.developers.google.com) → Enable YouTube Data API v3
+- **Spotify API**: [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) → Create App
+
+---
+
+## ✨ What You Get
+
+🐳 **Complete LXC Container** - Debian 12 with everything configured  
+🎨 **Interactive Setup** - GUI prompts for all configuration  
+🔄 **Auto-Start Service** - Bot runs on boot automatically  
+📊 **Live Progress** - Watch the installation happen  
+📝 **Instant Results** - Discord invite link appears when ready  
+
+---
+
+## 🔧 Management
+
+### Container Commands
+```bash
+pct status 103        # Check if container is running
+pct enter 103         # Enter the container shell
+pct start/stop 103    # Start or stop container
+```
+
+### Bot Commands (inside container)
+```bash
+systemctl status muse     # Check bot status
+systemctl restart muse    # Restart the bot
+journalctl -u muse -f     # Watch live logs
+```
+
+---
+
+## 🎯 Perfect For
+
+- First-time bot hosting
+- Proxmox homelab setups  
+- Quick Discord music bot deployment
+- Learning LXC containers
+
+---
 
 ## 📱 GUI Screenshots
 
@@ -33,16 +80,10 @@ The installer features a complete interactive interface:
 - **Progress Bar** - Visual installation progress
 ![image](https://github.com/user-attachments/assets/03b4be11-36f7-4126-8343-88cbafdf121c)
 
+---
 
-🔧 After installation
-Manage container
-bashpct enter [CONTAINER_ID]     # Enter container
-pct status [CONTAINER_ID]    # Check status
-Manage bot service
-bashsystemctl status muse       # Check service
-journalctl -u muse -f       # View logs
-systemctl restart muse      # Restart bot
-🐛 Issues?
-Open an issue with your error message and I'll help you out!
+<div align="center">
 
-Simple automation for the Discord community 🎶
+*Made for the Discord community* 🎶
+
+</div>
