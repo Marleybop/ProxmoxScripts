@@ -55,10 +55,12 @@ fi
 
 # Get user input for LXC configuration
 echo -e "${CYAN}LXC Container Configuration:${NC}"
-read -p "Container ID (100-999): " CTID
+echo -e "${BLUE}Enter your container settings:${NC}"
+echo
+read -p "$(echo -e ${GREEN}Container ID ${YELLOW}[100-999]${NC}: )" CTID
 while [[ ! "$CTID" =~ ^[0-9]+$ ]] || [ "$CTID" -lt 100 ] || [ "$CTID" -gt 999 ]; do
     msg_error "Please enter a valid container ID (100-999)"
-    read -p "Container ID (100-999): " CTID
+    read -p "$(echo -e ${GREEN}Container ID ${YELLOW}[100-999]${NC}: )" CTID
 done
 
 # Check if container ID already exists
@@ -67,38 +69,44 @@ if pct status $CTID &>/dev/null; then
     exit 1
 fi
 
-read -p "Container hostname [muse]: " HOSTNAME
+read -p "$(echo -e ${GREEN}Container hostname ${YELLOW}[muse]${NC}: )" HOSTNAME
 HOSTNAME=${HOSTNAME:-muse}
 
-read -p "Root password: " -s PASSWORD
+echo -e "${GREEN}Root password:${NC}"
+read -p "$(echo -e ${YELLOW}Password${NC}: )" -s PASSWORD
 echo
 while [ -z "$PASSWORD" ]; do
     msg_error "Password cannot be empty!"
-    read -p "Root password: " -s PASSWORD
+    read -p "$(echo -e ${YELLOW}Password${NC}: )" -s PASSWORD
     echo
 done
 
-read -p "Memory (MB) [2048]: " MEMORY
+read -p "$(echo -e ${GREEN}Memory ${YELLOW}[2048 MB]${NC}: )" MEMORY
 MEMORY=${MEMORY:-2048}
 
-read -p "Disk size (GB) [20]: " DISK
+read -p "$(echo -e ${GREEN}Disk size ${YELLOW}[20 GB]${NC}: )" DISK
 DISK=${DISK:-20}
 
-read -p "CPU cores [2]: " CORES
+read -p "$(echo -e ${GREEN}CPU cores ${YELLOW}[2]${NC}: )" CORES
 CORES=${CORES:-2}
 
 echo
-echo -e "${CYAN}API Keys Configuration:${NC}"
-read -p "Discord Bot Token (required): " DISCORD_TOKEN
+echo -e "${CYAN}═══════════════════════════════════════════${NC}"
+echo -e "${CYAN}        API Keys Configuration${NC}"
+echo -e "${CYAN}═══════════════════════════════════════════${NC}"
+echo -e "${BLUE}Configure your bot API keys:${NC}"
+echo
+
+read -p "$(echo -e ${GREEN}Discord Bot Token ${RED}[REQUIRED]${NC}: )" DISCORD_TOKEN
 while [ -z "$DISCORD_TOKEN" ]; do
     msg_error "Discord token is required!"
-    read -p "Discord Bot Token: " DISCORD_TOKEN
+    read -p "$(echo -e ${GREEN}Discord Bot Token ${RED}[REQUIRED]${NC}: )" DISCORD_TOKEN
 done
 
-read -p "YouTube API Key (optional, press enter to skip): " YOUTUBE_API_KEY
-read -p "Spotify Client ID (optional, press enter to skip): " SPOTIFY_CLIENT_ID
+read -p "$(echo -e ${GREEN}YouTube API Key ${YELLOW}[OPTIONAL]${NC}: )" YOUTUBE_API_KEY
+read -p "$(echo -e ${GREEN}Spotify Client ID ${YELLOW}[OPTIONAL]${NC}: )" SPOTIFY_CLIENT_ID
 if [ ! -z "$SPOTIFY_CLIENT_ID" ]; then
-    read -p "Spotify Client Secret: " SPOTIFY_CLIENT_SECRET
+    read -p "$(echo -e ${GREEN}Spotify Client Secret${NC}: )" SPOTIFY_CLIENT_SECRET
 fi
 
 echo
