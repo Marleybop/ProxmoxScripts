@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Muse Discord Bot GUI Installer for Proxmox LXC
-# Simple dialog-based installation with API key setup
+# Muse Discord Bot Installer for Proxmox LXC
+# Interactive installation with Discord, YouTube, and Spotify configuration
 
 # Check and install dialog if needed
 if ! command -v dialog >/dev/null 2>&1; then
@@ -21,30 +21,43 @@ error_exit() {
     exit 1
 }
 
+# Check if running on Proxmox
+if ! command -v pct >/dev/null 2>&1; then
+    error_exit "This script must be run on a Proxmox VE host"
+fi
+
 # Welcome screen
 dialog --title "Muse Discord Bot Installer" \
-    --msgbox "Welcome to the Muse Discord Bot installer!\n\nThis will create a Proxmox LXC container and install Muse with all dependencies.\n\nPress OK to continue." 12 60
+    --msgbox "Welcome to the Muse Discord Bot installer!\n\nThis will:\n• Create a Proxmox LXC container\n• Install Muse Discord music bot\n• Configure Discord, YouTube & Spotify APIs\n\nPress OK to continue." 12 60
 
-# Container configuration
-dialog --title "Container ID" \
-    --inputbox "Enter container ID (100-999999999):" 8 50 "200" 2>"$CONFIG_FILE"
-[ $? -ne 0 ] && exit 0
-CTID=$(cat "$CONFIG_FILE")
+# Container ID
+while true; do
+    dialog --title "Container ID" \
+        --inputbox "Enter container ID (100-999999999):" 8 50 "200" 2>"$CONFIG_FILE"
+    [ $? -ne 0 ] && exit 0
+    
+    CTID=$(cat "$CONFIG_FILE")
+    
+    if ! [[ "$CTID" =~ ^[0-9]+$ ]] || [ "$CTID" -lt 100 ] || [ "$CTID" -gt 999999999 ]; then
+        dialog --title "Error" --msgbox "Invalid container ID! Must be 100-999999999" 6 50
+        continue
+    fi
+    
+    if pct list | grep -q "^$CTID "; then
+        dialog --title "Error" --msgbox "Container $CTID already exists!" 6 40
+        continue
+    fi
+    
+    break
+done
 
-# Validate container ID
-if ! [[ "$CTID" =~ ^[0-9]+$ ]] || [ "$CTID" -lt 100 ] || [ "$CTID" -gt 999999999 ]; then
-    error_exit "Invalid container ID!"
-fi
-
-if pct list | grep -q "^$CTID "; then
-    error_exit "Container $CTID already exists!"
-fi
-
+# Container name
 dialog --title "Container Name" \
     --inputbox "Enter container name:" 8 50 "muse-bot" 2>"$CONFIG_FILE"
 [ $? -ne 0 ] && exit 0
 CT_NAME=$(cat "$CONFIG_FILE")
 
+# Root password
 dialog --title "Root Password" \
     --passwordbox "Enter root password for the container:" 8 50 2>"$CONFIG_FILE"
 [ $? -ne 0 ] && exit 0
@@ -54,94 +67,84 @@ if [ -z "$CT_PASSWORD" ]; then
     error_exit "Password cannot be empty!"
 fi
 
-# Container resources
-dialog --title "Container Resources" \
-    --form "Configure container resources:" 12 50 4 \
-    "RAM (MB):" 1 1 "2048" 1 12 10 0 \
-    "CPU Cores:" 2 1 "2" 2 12 10 0 \
-    "Disk (GB):" 3 1 "8" 3 12 10 0 \
-    "Storage:" 4 1 "local-lvm" 4 12 15 0 \
-    2>"$CONFIG_FILE"
+# Discord Bot Token (Required)
+dialog --title "Discord Bot Token" \
+    --msgbox "You need a Discord Bot Token for Muse to work.\n\nTo get one:\n1. Go to https://discord.com/developers/applications\n2. Create 'New Application'\n3. Go to 'Bot' section\n4. Copy the token\n\nPress OK to enter your token." 12 70
+
+dialog --title "Discord Bot Token" \
+    --inputbox "Enter your Discord Bot Token:" 8 70 2>"$CONFIG_FILE"
 [ $? -ne 0 ] && exit 0
+DISCORD_TOKEN=$(cat "$CONFIG_FILE")
 
-# Parse form results
-CT_RAM=$(sed -n '1p' "$CONFIG_FILE")
-CT_CPU=$(sed -n '2p' "$CONFIG_FILE")
-CT_DISK=$(sed -n '3p' "$CONFIG_FILE")
-CT_STORAGE=$(sed -n '4p' "$CONFIG_FILE")
+if [ -z "$DISCORD_TOKEN" ]; then
+    error_exit "Discord token is required for Muse to function!"
+fi
 
-# Template selection
-dialog --title "Template" \
-    --inputbox "Enter Debian template name:" 8 60 "debian-12-standard_12.7-1_amd64.tar.zst" 2>"$CONFIG_FILE"
+# YouTube API Key (Required)
+dialog --title "YouTube API Key" \
+    --msgbox "You need a YouTube API Key for music playback.\n\nTo get one:\n1. Go to https://console.developers.google.com\n2. Create a new project\n3. Enable 'YouTube Data API v3'\n4. Create credentials (API Key)\n\nPress OK to enter your key." 12 70
+
+dialog --title "YouTube API Key" \
+    --inputbox "Enter your YouTube API Key:" 8 70 2>"$CONFIG_FILE"
 [ $? -ne 0 ] && exit 0
-CT_TEMPLATE=$(cat "$CONFIG_FILE")
+YOUTUBE_API_KEY=$(cat "$CONFIG_FILE")
 
-# API Keys configuration
-dialog --title "API Keys Setup" \
-    --yesno "Do you want to configure API keys now?\n\n(Required for Muse to function)\n\nYou'll need:\n• Discord Bot Token\n• YouTube API Key\n• Spotify keys (optional)" 12 60
+if [ -z "$YOUTUBE_API_KEY" ]; then
+    error_exit "YouTube API key is required for music playback!"
+fi
+
+# Spotify Integration (Optional)
+dialog --title "Spotify Integration" \
+    --yesno "Do you want Spotify integration?\n\nThis allows:\n• Converting Spotify playlists to YouTube\n• Playing Spotify tracks via YouTube\n\nThis is optional but recommended." 10 60
 
 if [ $? -eq 0 ]; then
-    # Discord Token
-    dialog --title "Discord Bot Token" \
-        --inputbox "Enter your Discord Bot Token:\n\nGet it from: https://discord.com/developers/applications" 10 70 2>"$CONFIG_FILE"
+    dialog --title "Spotify Setup" \
+        --msgbox "To get Spotify API keys:\n\n1. Go to https://developer.spotify.com/dashboard\n2. Create an app\n3. Copy Client ID and Client Secret\n\nPress OK to enter your keys." 10 70
+    
+    dialog --title "Spotify Client ID" \
+        --inputbox "Enter Spotify Client ID:" 8 60 2>"$CONFIG_FILE"
     [ $? -ne 0 ] && exit 0
-    DISCORD_TOKEN=$(cat "$CONFIG_FILE")
+    SPOTIFY_CLIENT_ID=$(cat "$CONFIG_FILE")
     
-    # YouTube API Key
-    dialog --title "YouTube API Key" \
-        --inputbox "Enter your YouTube API Key:\n\nGet it from: https://console.developers.google.com" 10 70 2>"$CONFIG_FILE"
+    dialog --title "Spotify Client Secret" \
+        --inputbox "Enter Spotify Client Secret:" 8 60 2>"$CONFIG_FILE"
     [ $? -ne 0 ] && exit 0
-    YOUTUBE_API_KEY=$(cat "$CONFIG_FILE")
+    SPOTIFY_CLIENT_SECRET=$(cat "$CONFIG_FILE")
     
-    # Spotify (optional)
-    dialog --title "Spotify API Keys" \
-        --yesno "Do you want to configure Spotify integration?\n\n(Optional - for playlist conversion)" 8 60
-    
-    if [ $? -eq 0 ]; then
-        dialog --title "Spotify Client ID" \
-            --inputbox "Enter Spotify Client ID:\n\nGet it from: https://developer.spotify.com/dashboard" 10 70 2>"$CONFIG_FILE"
-        [ $? -ne 0 ] && exit 0
-        SPOTIFY_CLIENT_ID=$(cat "$CONFIG_FILE")
-        
-        dialog --title "Spotify Client Secret" \
-            --inputbox "Enter Spotify Client Secret:" 8 60 2>"$CONFIG_FILE"
-        [ $? -ne 0 ] && exit 0
-        SPOTIFY_CLIENT_SECRET=$(cat "$CONFIG_FILE")
-    fi
-    
-    SETUP_KEYS="yes"
+    SPOTIFY_ENABLED="yes"
 else
-    SETUP_KEYS="no"
+    SPOTIFY_ENABLED="no"
 fi
 
 # Configuration summary
-SUMMARY="Container Configuration:
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-• ID: $CTID
-• Name: $CT_NAME
-• Template: $CT_TEMPLATE
-• Storage: $CT_STORAGE
-• RAM: ${CT_RAM}MB
-• CPU: $CT_CPU cores
-• Disk: ${CT_DISK}GB
+SUMMARY="Ready to install Muse Discord Bot!
 
-API Keys: $([ "$SETUP_KEYS" = "yes" ] && echo "✓ Configured" || echo "✗ Will configure later")"
+Container: $CTID ($CT_NAME)
+Discord: ✓ Configured
+YouTube: ✓ Configured
+Spotify: $([ "$SPOTIFY_ENABLED" = "yes" ] && echo "✓ Configured" || echo "✗ Disabled")
+
+The container will be created with:
+• Debian 12 LTS
+• 2GB RAM, 2 CPU cores, 8GB disk
+• Node.js 18 & all dependencies
+• Muse bot with your API keys"
 
 dialog --title "Confirm Installation" \
-    --yesno "$SUMMARY\n\nProceed with installation?" 18 70
+    --yesno "$SUMMARY\n\nProceed with installation?" 16 70
 [ $? -ne 0 ] && exit 0
 
 # Installation with progress
 {
     echo "0" ; echo "Creating LXC container..."
     
-    # Create container
-    pct create $CTID local:vztmpl/$CT_TEMPLATE \
+    # Create container with sensible defaults
+    pct create $CTID local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst \
         --hostname $CT_NAME \
-        --storage $CT_STORAGE \
-        --rootfs $CT_STORAGE:$CT_DISK \
-        --memory $CT_RAM \
-        --cores $CT_CPU \
+        --storage local-lvm \
+        --rootfs local-lvm:8 \
+        --memory 2048 \
+        --cores 2 \
         --password $CT_PASSWORD \
         --net0 name=eth0,bridge=vmbr0,ip=dhcp \
         --features nesting=1 \
@@ -152,7 +155,7 @@ dialog --title "Confirm Installation" \
     pct start $CTID >/dev/null 2>&1
     sleep 10
     
-    echo "25" ; echo "Updating system packages..."
+    echo "25" ; echo "Updating system..."
     pct exec $CTID -- apt update >/dev/null 2>&1
     pct exec $CTID -- apt upgrade -y >/dev/null 2>&1
     
@@ -166,7 +169,7 @@ dialog --title "Confirm Installation" \
     echo "70" ; echo "Creating muse user..."
     pct exec $CTID -- useradd -m -s /bin/bash muse >/dev/null 2>&1
     
-    echo "80" ; echo "Installing Muse Discord Bot..."
+    echo "80" ; echo "Installing Muse..."
     pct exec $CTID -- sudo -u muse bash -c "
         cd /home/muse
         git clone https://github.com/museofficial/muse.git >/dev/null 2>&1
@@ -174,21 +177,21 @@ dialog --title "Confirm Installation" \
         git checkout \$(git describe --tags --abbrev=0) >/dev/null 2>&1
         npm install >/dev/null 2>&1
         cp .env.example .env
-        echo 'CACHE_LIMIT=1GB' >> .env
     " >/dev/null 2>&1
     
     echo "90" ; echo "Configuring API keys..."
-    if [ "$SETUP_KEYS" = "yes" ]; then
-        pct exec $CTID -- sudo -u muse bash -c "
-            cd /home/muse/muse
-            sed -i 's/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/' .env
-            sed -i 's/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/' .env
-            sed -i 's/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}/' .env
-            sed -i 's/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}/' .env
-        " >/dev/null 2>&1
-    fi
+    pct exec $CTID -- sudo -u muse bash -c "
+        cd /home/muse/muse
+        sed -i 's/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/' .env
+        sed -i 's/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/' .env
+        $([ "$SPOTIFY_ENABLED" = "yes" ] && echo "
+        sed -i 's/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/' .env
+        sed -i 's/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET/' .env
+        ")
+        echo 'CACHE_LIMIT=1GB' >> .env
+    " >/dev/null 2>&1
     
-    echo "95" ; echo "Creating systemd service..."
+    echo "95" ; echo "Setting up service..."
     pct exec $CTID -- bash -c "
         cat > /etc/systemd/system/muse.service << 'EOF'
 [Unit]
@@ -208,85 +211,58 @@ WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
         systemctl enable muse >/dev/null 2>&1
+        systemctl start muse >/dev/null 2>&1
     " >/dev/null 2>&1
     
     echo "100" ; echo "Installation complete!"
     
-} | dialog --title "Installing Muse" --gauge "Preparing installation..." 8 60 0
+} | dialog --title "Installing Muse" --gauge "Setting up your Discord music bot..." 8 70 0
 
 # Get container IP
-CT_IP=$(pct exec $CTID -- hostname -I | awk '{print $1}' 2>/dev/null || echo "Check manually")
+CT_IP=$(pct exec $CTID -- hostname -I | awk '{print $1}' 2>/dev/null || echo "DHCP assigned")
 
 # Success message
-if [ "$SETUP_KEYS" = "yes" ]; then
-    # Start service automatically if keys are configured
-    pct exec $CTID -- systemctl start muse >/dev/null 2>&1
-    
-    RESULT_MSG="✅ Muse Discord Bot installed successfully!
+SUCCESS_MSG="🎵 Muse Discord Bot installed successfully!
 
 Container Details:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Container ID: $CTID
-• Container IP: $CT_IP
-• Service Status: Started
+Container ID: $CTID
+Container IP: $CT_IP
+Service Status: ✓ Running
 
-✅ API keys configured and service started!
+API Configuration:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Discord: ✓ Configured
+YouTube: ✓ Configured
+Spotify: $([ "$SPOTIFY_ENABLED" = "yes" ] && echo "✓ Configured" || echo "✗ Not configured")
 
 Next Steps:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. Check logs for Discord invite URL:
    pct exec $CTID -- journalctl -u muse -f
 
-2. The bot will show an invite link in the logs
-3. Use that link to add the bot to your Discord server
+2. Copy the invite link from the logs
+3. Open the link to add Muse to your Discord server
+4. Use /play <song> to start playing music!
 
 Useful Commands:
-• Access container: pct enter $CTID
-• Check status: pct exec $CTID -- systemctl status muse
-• Restart bot: pct exec $CTID -- systemctl restart muse"
-
-else
-    
-    RESULT_MSG="✅ Muse Discord Bot installed successfully!
-
-Container Details:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Container ID: $CTID
-• Container IP: $CT_IP
-• Service Status: Ready (not started)
+Access container: pct enter $CTID
+View logs: pct exec $CTID -- journalctl -u muse -f
+Restart bot: pct exec $CTID -- systemctl restart muse
+Check status: pct exec $CTID -- systemctl status muse"
 
-⚠️  API keys not configured yet.
+dialog --title "🎵 Installation Complete!" --msgbox "$SUCCESS_MSG" 25 80
 
-Next Steps:
-1. Configure API keys:
-   pct exec $CTID -- sudo -u muse nano /home/muse/muse/.env
+# Offer to show logs immediately
+dialog --title "View Bot Logs" --yesno "Would you like to see the Muse logs now?\n\nThis will show the Discord invite URL you need." 8 60
 
-2. Start the service:
-   pct exec $CTID -- systemctl start muse
-
-3. Check logs for Discord invite URL:
-   pct exec $CTID -- journalctl -u muse -f
-
-Required API Keys:
-• DISCORD_TOKEN (from discord.com/developers/applications)
-• YOUTUBE_API_KEY (from console.developers.google.com)
-• SPOTIFY_CLIENT_ID & SECRET (optional, from developer.spotify.com)
-
-Useful Commands:
-• Access container: pct enter $CTID
-• Check status: pct exec $CTID -- systemctl status muse"
-
-fi
-
-dialog --title "Installation Complete" --msgbox "$RESULT_MSG" 25 80
-
-# Offer to show logs if service is running
-if [ "$SETUP_KEYS" = "yes" ]; then
-    dialog --title "View Logs" --yesno "Would you like to view the Muse logs now?\n\n(Look for the Discord invite URL)" 8 60
-    if [ $? -eq 0 ]; then
-        clear
-        echo "=== Muse Bot Logs (Press Ctrl+C to exit) ==="
-        echo "Look for the Discord invite URL in the logs below:"
-        echo
-        pct exec $CTID -- journalctl -u muse -f
-    fi
+if [ $? -eq 0 ]; then
+    clear
+    echo "=== Muse Discord Bot Logs ==="
+    echo "Look for the Discord invite URL below:"
+    echo "Press Ctrl+C when you've copied the invite link"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+    pct exec $CTID -- journalctl -u muse -f --no-pager
 fi
