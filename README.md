@@ -161,4 +161,88 @@ After the script completes:
 ### Support
 
 - **Muse Documentation:** [GitHub Repository](https://github.com/museofficial/muse)
-- **Proxmox Documentation:** [Official Docs
+- **Proxmox Documentation:** [Official Docs](https://pve.proxmox.com/pve-docs/)
+- **Issues:** Report problems via GitHub Issues
+
+### Advanced Configuration
+
+#### Customizing Muse Settings
+
+Edit the environment file to customize Muse behavior:
+
+```bash
+pct exec [CONTAINER_ID] -- sudo -u muse nano /home/muse/muse/.env
+```
+
+**Available options:**
+- `CACHE_LIMIT=1GB` - Set audio cache size
+- `ENABLE_SPONSORBLOCK=true` - Skip YouTube music intro/outro
+- `BOT_STATUS=online` - Bot status (online/idle/dnd)
+- `BOT_ACTIVITY_TYPE=LISTENING` - Activity type
+- `BOT_ACTIVITY=Music` - Activity text
+
+#### Resource Adjustment
+
+If you need to modify container resources after creation:
+
+```bash
+# Stop container
+pct stop [CONTAINER_ID]
+
+# Modify resources
+pct set [CONTAINER_ID] --memory 4096 --cores 4
+
+# Start container
+pct start [CONTAINER_ID]
+```
+
+#### Backup and Restore
+
+**Create backup:**
+```bash
+vzdump [CONTAINER_ID] --mode stop --storage [STORAGE]
+```
+
+**Restore from backup:**
+```bash
+pct restore [NEW_ID] [BACKUP_FILE] --storage [STORAGE]
+```
+
+### Security Notes
+
+- Container runs as unprivileged for security
+- Muse runs as dedicated user, not root
+- Change default root password after installation
+- Consider firewall rules for container access
+- Regular updates recommended: `apt update && apt upgrade`
+
+### Performance Tips
+
+- **Memory:** 2GB minimum, 4GB+ for large servers
+- **Storage:** Use SSD storage for better performance
+- **Network:** Ensure stable internet for streaming
+- **Cache:** Increase cache size for frequently played music
+
+### License
+
+This project is open source. Individual components may have their own licenses:
+- Muse: [Check repository](https://github.com/museofficial/muse)
+- Scripts: MIT License (see LICENSE file)
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+### Changelog
+
+#### v1.0.0
+- Initial release
+- Interactive CLI script
+- GUI dialog script
+- Full Muse Discord bot installation
+- Systemd service integration
+- Comprehensive documentation
