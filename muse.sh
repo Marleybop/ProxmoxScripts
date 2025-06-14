@@ -55,30 +55,18 @@ fi
 
 # Update system
 msg_info "Updating system packages..."
-if [ "$RUN_AS_ROOT" = true ]; then
-    apt update && apt upgrade -y
-else
-    sudo apt update && sudo apt upgrade -y
-fi
+apt update && apt upgrade -y
 msg_ok "System updated"
 
 # Install dependencies
 msg_info "Installing dependencies..."
-if [ "$RUN_AS_ROOT" = true ]; then
-    apt install -y curl wget git ffmpeg python3 build-essential
-else
-    sudo apt install -y curl wget git ffmpeg python3 build-essential
-fi
+apt install -y curl wget git ffmpeg python3 build-essential sudo
 msg_ok "Dependencies installed"
 
 # Install Node.js 18
 msg_info "Installing Node.js 18..."
-curl -fsSL https://deb.nodesource.com/setup_18.x | $([ "$RUN_AS_ROOT" = true ] && echo "bash -" || echo "sudo -E bash -")
-if [ "$RUN_AS_ROOT" = true ]; then
-    apt install -y nodejs
-else
-    sudo apt install -y nodejs
-fi
+curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+apt install -y nodejs
 msg_ok "Node.js installed ($(node --version))"
 
 # Create muse user if running as root
@@ -90,46 +78,25 @@ if [ "$RUN_AS_ROOT" = true ]; then
     else
         msg_info "User 'muse' already exists"
     fi
-    MUSE_USER="muse"
-    MUSE_HOME="/home/muse"
-else
-    MUSE_USER="$USER"
-    MUSE_HOME="$HOME"
 fi
 
 # Install Muse
 msg_info "Installing Muse Discord Bot..."
-if [ "$RUN_AS_ROOT" = true ]; then
-    su - muse -c "
-        cd /home/muse
-        if [ -d 'muse' ]; then
-            echo 'Muse directory exists, removing...'
-            rm -rf muse
-        fi
-        git clone https://github.com/museofficial/muse.git
-        cd muse
-        LATEST_TAG=\$(git describe --tags --abbrev=0)
-        git checkout \$LATEST_TAG
-        echo 'Checked out to: '\$LATEST_TAG
-        npm install
-        cp .env.example .env
-        echo 'CACHE_LIMIT=1GB' >> .env
-    "
-else
-    cd "$MUSE_HOME"
+su - muse -c "
+    cd /home/muse
     if [ -d 'muse' ]; then
-        msg_info "Muse directory exists, removing..."
+        echo 'Removing existing muse directory...'
         rm -rf muse
     fi
     git clone https://github.com/museofficial/muse.git
     cd muse
-    LATEST_TAG=$(git describe --tags --abbrev=0)
-    git checkout $LATEST_TAG
-    echo "Checked out to: $LATEST_TAG"
-    npm install
+    LATEST_TAG=\$(git describe --tags --abbrev=0)
+    git checkout \$LATEST_TAG
+    echo 'Checked out to: '\$LATEST_TAG
+    npm install --legacy-peer-deps
     cp .env.example .env
     echo 'CACHE_LIMIT=1GB' >> .env
-fi
+"
 msg_ok "Muse installed"
 
 # Configure API keys
@@ -160,21 +127,13 @@ if [[ "$CONFIGURE_NOW" =~ ^[Yy] ]]; then
     
     # Update .env file
     msg_info "Updating configuration..."
-    if [ "$RUN_AS_ROOT" = true ]; then
-        su - muse -c "
-            cd /home/muse/muse
-            sed -i 's/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/' .env
-            sed -i 's/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/' .env
-            $([ -n "$SPOTIFY_CLIENT_ID" ] && echo "sed -i 's/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/' .env")
-            $([ -n "$SPOTIFY_CLIENT_SECRET" ] && echo "sed -i 's/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET/' .env")
-        "
-    else
-        cd "$MUSE_HOME/muse"
-        sed -i "s/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/" .env
-        sed -i "s/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/" .env
-        [ -n "$SPOTIFY_CLIENT_ID" ] && sed -i "s/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/" .env
-        [ -n "$SPOTIFY_CLIENT_SECRET" ] && sed -i "s/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET/" .env
-    fi
+    su - muse -c "
+        cd /home/muse/muse
+        sed -i 's/DISCORD_TOKEN=.*/DISCORD_TOKEN=$DISCORD_TOKEN/' .env
+        sed -i 's/YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY=$YOUTUBE_API_KEY/' .env
+        $([ -n "$SPOTIFY_CLIENT_ID" ] && echo "sed -i 's/SPOTIFY_CLIENT_ID=.*/SPOTIFY_CLIENT_ID=$SPOTIFY_CLIENT_ID/' .env")
+        $([ -n "$SPOTIFY_CLIENT_SECRET" ] && echo "sed -i 's/SPOTIFY_CLIENT_SECRET=.*/SPOTIFY_CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET/' .env")
+    "
     msg_ok "Configuration updated"
     
     KEYS_CONFIGURED=true
@@ -182,10 +141,9 @@ else
     KEYS_CONFIGURED=false
 fi
 
-# Create systemd service (only if root)
-if [ "$RUN_AS_ROOT" = true ]; then
-    msg_info "Creating systemd service..."
-    cat > /etc/systemd/system/muse.service << EOF
+# Create systemd service
+msg_info "Creating systemd service..."
+cat > /etc/systemd/system/muse.service << 'EOF'
 [Unit]
 Description=Muse Discord Music Bot
 After=network.target
@@ -194,7 +152,7 @@ After=network.target
 Type=simple
 User=muse
 Group=muse
-WorkingDirectory=$MUSE_HOME/muse
+WorkingDirectory=/home/muse/muse
 ExecStart=/usr/bin/npm start
 Restart=always
 RestartSec=10
@@ -203,11 +161,10 @@ Environment=NODE_ENV=production
 [Install]
 WantedBy=multi-user.target
 EOF
-    
-    systemctl daemon-reload
-    systemctl enable muse
-    msg_ok "Service created and enabled"
-fi
+
+systemctl daemon-reload
+systemctl enable muse
+msg_ok "Service created and enabled"
 
 # Final instructions
 echo
@@ -215,16 +172,16 @@ msg_ok "Muse Discord Bot installation completed!"
 echo
 echo "Installation Details:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "User: $MUSE_USER"
-echo "Location: $MUSE_HOME/muse"
-echo "Config: $MUSE_HOME/muse/.env"
+echo "User: muse"
+echo "Location: /home/muse/muse"
+echo "Config: /home/muse/muse/.env"
 echo "API Keys: $([ "$KEYS_CONFIGURED" = true ] && echo "✓ Configured" || echo "✗ Not configured")"
 echo
 
 if [ "$KEYS_CONFIGURED" = false ]; then
     echo "Next Steps:"
     echo "1. Configure API keys:"
-    echo "   nano $MUSE_HOME/muse/.env"
+    echo "   nano /home/muse/muse/.env"
     echo
     echo "Required API keys:"
     echo "• DISCORD_TOKEN (from https://discord.com/developers/applications)"
@@ -233,24 +190,21 @@ if [ "$KEYS_CONFIGURED" = false ]; then
     echo
 fi
 
-echo "To run Muse:"
-if [ "$RUN_AS_ROOT" = true ]; then
-    if [ "$KEYS_CONFIGURED" = true ]; then
-        echo "• Start service: systemctl start muse"
-        echo "• Check status: systemctl status muse"
-        echo "• View logs: journalctl -u muse -f"
-    else
-        echo "• Configure keys first, then: systemctl start muse"
-    fi
-    echo "• Stop service: systemctl stop muse"
+echo "To manage Muse:"
+if [ "$KEYS_CONFIGURED" = true ]; then
+    echo "• Start service: systemctl start muse"
+    echo "• Check status: systemctl status muse"
+    echo "• View logs: journalctl -u muse -f"
 else
-    echo "• cd $MUSE_HOME/muse && npm start"
+    echo "• Configure keys first, then: systemctl start muse"
 fi
+echo "• Stop service: systemctl stop muse"
+echo "• Restart service: systemctl restart muse"
 echo
 echo "The bot will display a Discord invite URL when started."
 echo "Use that URL to add Muse to your Discord server!"
 
-if [ "$RUN_AS_ROOT" = true ] && [ "$KEYS_CONFIGURED" = true ]; then
+if [ "$KEYS_CONFIGURED" = true ]; then
     echo
     read -p "Start Muse service now? (y/N): " START_NOW
     if [[ "$START_NOW" =~ ^[Yy] ]]; then
@@ -258,7 +212,7 @@ if [ "$RUN_AS_ROOT" = true ] && [ "$KEYS_CONFIGURED" = true ]; then
         systemctl start muse
         sleep 3
         echo
-        echo "Service started! Check logs:"
+        echo "Service started! Check logs for invite URL:"
         echo "journalctl -u muse -f"
     fi
 fi
