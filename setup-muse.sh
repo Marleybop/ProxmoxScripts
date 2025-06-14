@@ -41,16 +41,22 @@ get_input() {
 # Function to validate container ID
 validate_container_id() {
     local id="$1"
-    if ! [[ "$id" =~ ^[0-9]+$ ]]; then
-        return 1
-    fi
-    if [ "$id" -lt 100 ] || [ "$id" -gt 999999999 ]; then
-        return 1
-    fi
-    if pct list | grep -q "^$id"; then
-        return 1
-    fi
-    return 0
+    case "$id" in
+        ''|*[!0-9]*)
+            # Not a number
+            return 1
+            ;;
+        *)
+            # It's a number, check range and existence
+            if [ "$id" -lt 100 ] || [ "$id" -gt 999999999 ]; then
+                return 1
+            fi
+            if pct list | grep -q "^$id"; then
+                return 1
+            fi
+            return 0
+            ;;
+    esac
 }
 
 # Function to list available templates
@@ -95,30 +101,40 @@ echo
 list_templates
 echo
 TEMPLATE_CHOICE=$(get_input "Select template number (or enter custom name)" "0")
-if [[ "$TEMPLATE_CHOICE" =~ ^[0-9]+$ ]]; then
-    TEMPLATE=$(pveam list local | grep debian | sed -n "$((TEMPLATE_CHOICE+1))p" | awk '{print $2}')
-    if [ -z "$TEMPLATE" ]; then
-        TEMPLATE="debian-12-standard_12.2-1_amd64.tar.zst"
-        print_warning "Invalid selection, using default: $TEMPLATE"
-    fi
-else
-    TEMPLATE="$TEMPLATE_CHOICE"
-fi
+case "$TEMPLATE_CHOICE" in
+    ''|*[!0-9]*)
+        # Not a number, use as custom template name
+        TEMPLATE="$TEMPLATE_CHOICE"
+        ;;
+    *)
+        # It's a number, get template by index
+        TEMPLATE=$(pveam list local | grep debian | sed -n "$((TEMPLATE_CHOICE+1))p" | awk '{print $2}')
+        if [ -z "$TEMPLATE" ]; then
+            TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
+            print_warning "Invalid selection, using default: $TEMPLATE"
+        fi
+        ;;
+esac
 
 # List and select storage
 echo
 list_storage
 echo
 STORAGE_CHOICE=$(get_input "Select storage number (or enter custom name)" "0")
-if [[ "$STORAGE_CHOICE" =~ ^[0-9]+$ ]]; then
-    STORAGE=$(pvesm status | grep -E "(active|enabled)" | sed -n "$((STORAGE_CHOICE+1))p" | awk '{print $1}')
-    if [ -z "$STORAGE" ]; then
-        STORAGE="local-lvm"
-        print_warning "Invalid selection, using default: $STORAGE"
-    fi
-else
-    STORAGE="$STORAGE_CHOICE"
-fi
+case "$STORAGE_CHOICE" in
+    ''|*[!0-9]*)
+        # Not a number, use as custom storage name
+        STORAGE="$STORAGE_CHOICE"
+        ;;
+    *)
+        # It's a number, get storage by index
+        STORAGE=$(pvesm status | grep -E "(active|enabled)" | sed -n "$((STORAGE_CHOICE+1))p" | awk '{print $1}')
+        if [ -z "$STORAGE" ]; then
+            STORAGE="local-lvm"
+            print_warning "Invalid selection, using default: $STORAGE"
+        fi
+        ;;
+esac
 
 # Resource configuration
 ROOT_SIZE=$(get_input "Root filesystem size" "8G")
@@ -146,17 +162,20 @@ echo
 print_info "API Keys Configuration (optional - can be set later):"
 echo "You can configure these now or later via the container"
 read -p "Do you want to configure API keys now? (y/N): " CONFIGURE_KEYS
-if [[ "$CONFIGURE_KEYS" =~ ^[Yy]$ ]]; then
-    DISCORD_TOKEN=$(get_input "Discord Bot Token (required for bot to work)" "")
-    YOUTUBE_API_KEY=$(get_input "YouTube API Key (required for YouTube support)" "")
-    SPOTIFY_CLIENT_ID=$(get_input "Spotify Client ID (optional)" "")
-    SPOTIFY_CLIENT_SECRET=$(get_input "Spotify Client Secret (optional)" "")
-else
-    DISCORD_TOKEN=""
-    YOUTUBE_API_KEY=""
-    SPOTIFY_CLIENT_ID=""
-    SPOTIFY_CLIENT_SECRET=""
-fi
+case "$CONFIGURE_KEYS" in
+    [Yy]|[Yy][Ee][Ss])
+        DISCORD_TOKEN=$(get_input "Discord Bot Token (required for bot to work)" "")
+        YOUTUBE_API_KEY=$(get_input "YouTube API Key (required for YouTube support)" "")
+        SPOTIFY_CLIENT_ID=$(get_input "Spotify Client ID (optional)" "")
+        SPOTIFY_CLIENT_SECRET=$(get_input "Spotify Client Secret (optional)" "")
+        ;;
+    *)
+        DISCORD_TOKEN=""
+        YOUTUBE_API_KEY=""
+        SPOTIFY_CLIENT_ID=""
+        SPOTIFY_CLIENT_SECRET=""
+        ;;
+esac
 
 # Summary
 echo
@@ -174,10 +193,15 @@ echo "API Keys: $([ -n "$DISCORD_TOKEN" ] && echo "Configured" || echo "Will con
 echo
 
 read -p "Proceed with installation? (y/N): " CONFIRM
-if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-    print_info "Installation cancelled."
-    exit 0
-fi
+case "$CONFIRM" in
+    [Yy]|[Yy][Ee][Ss])
+        # Continue with installation
+        ;;
+    *)
+        print_info "Installation cancelled."
+        exit 0
+        ;;
+esac
 
 # Check if container already exists
 if pct list | grep -q "^$CONTAINER_ID"; then
