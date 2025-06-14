@@ -76,6 +76,8 @@ The installer will guide you through:
 The installer features a complete interactive interface:
 
 - **Welcome Screen** - Overview of installation process
+![image](https://github.com/user-attachments/assets/1f6c8319-eba1-4f9f-8df7-3abba8b2121d)
+
 - **Configuration Forms** - Easy input with validation
 - **Progress Bar** - Visual installation progress
 - **Confirmation Dialogs** - Review settings before proceeding
