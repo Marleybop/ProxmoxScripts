@@ -127,7 +127,7 @@ journalctl -u muse --since "1 hour ago"
 - **OS**: Debian 12 (latest stable)
 - **Default Resources**: 2GB RAM, 20GB storage, 2 CPU cores
 - **Network**: DHCP on vmbr0
-- **Features**: Nesting enabled for Docker support
+- **Features**: Nesting enabled for compatibility
 - **Security**: Unprivileged container
 
 ### Software Stack
